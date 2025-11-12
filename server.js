@@ -93,7 +93,6 @@ function rollDice() {
 
 function calculateRent(property, owner, game) {
   if (property.type === 'property') {
-    // Count houses (simplified - no houses in this version, just owned properties)
     return property.rent[0];
   } else if (property.type === 'railroad') {
     const railroads = game.players[owner].properties.filter(p => 
@@ -119,6 +118,12 @@ io.on('connection', (socket) => {
     gameRooms.set(roomId, game);
     socket.join(roomId);
     socket.emit('roomCreated', { roomId, game });
+    
+    // Send welcome message
+    io.to(roomId).emit('systemMessage', { 
+      text: `${playerName} created the room!` 
+    });
+    
     console.log(`Room ${roomId} created by ${playerName}`);
   });
 
@@ -150,6 +155,12 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     io.to(roomId).emit('gameUpdate', game);
+    
+    // Send join message to chat
+    io.to(roomId).emit('systemMessage', { 
+      text: `${playerName} joined the game!` 
+    });
+    
     console.log(`${playerName} joined room ${roomId}`);
   });
 
@@ -166,6 +177,11 @@ io.on('connection', (socket) => {
     game.gameStarted = true;
     game.currentPlayerIndex = 0;
     io.to(roomId).emit('gameStarted', game);
+    
+    // Send game start message
+    io.to(roomId).emit('systemMessage', { 
+      text: '🎮 Game started! Good luck everyone!' 
+    });
   });
 
   socket.on('rollDice', ({ roomId }) => {
@@ -224,10 +240,8 @@ io.on('connection', (socket) => {
         const ownerIndex = game.players.findIndex(p => p.properties.includes(space.id));
         
         if (ownerIndex === -1) {
-          // Property available for purchase
           game.lastAction = `${currentPlayer.name} landed on ${space.name} - Available for $${space.price}`;
         } else if (ownerIndex !== game.currentPlayerIndex) {
-          // Pay rent
           const rent = calculateRent(space, ownerIndex, game);
           currentPlayer.money -= rent;
           game.players[ownerIndex].money += rent;
@@ -298,9 +312,27 @@ io.on('connection', (socket) => {
     if (activePlayers.length === 1) {
       game.lastAction = `${activePlayers[0].name} wins the game!`;
       io.to(roomId).emit('gameOver', { winner: activePlayers[0] });
+      io.to(roomId).emit('systemMessage', { 
+        text: `🏆 ${activePlayers[0].name} wins the game!` 
+      });
     }
 
     io.to(roomId).emit('gameUpdate', game);
+  });
+
+  // Chat functionality
+  socket.on('sendChatMessage', ({ roomId, playerName, message }) => {
+    const game = gameRooms.get(roomId);
+    if (!game) return;
+
+    const chatMessage = {
+      playerName,
+      message,
+      timestamp: new Date().toISOString()
+    };
+
+    io.to(roomId).emit('chatMessage', chatMessage);
+    console.log(`Chat in ${roomId} - ${playerName}: ${message}`);
   });
 
   socket.on('disconnect', () => {
@@ -316,11 +348,13 @@ io.on('connection', (socket) => {
         if (game.players.length === 0) {
           gameRooms.delete(roomId);
         } else {
-          // Adjust current player index if needed
           if (game.currentPlayerIndex >= game.players.length) {
             game.currentPlayerIndex = 0;
           }
           io.to(roomId).emit('playerLeft', { playerName: player.name, game });
+          io.to(roomId).emit('systemMessage', { 
+            text: `${player.name} left the game` 
+          });
         }
       }
     });
